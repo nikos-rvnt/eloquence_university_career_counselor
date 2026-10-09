@@ -1,0 +1,59 @@
+services:
+
+  university-counselor-app:
+    image: cnr-university-counselor:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: university-counselor-rag
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_HOST=http://ollama:11434
+      - HF_HOME=/app/.cache/huggingface
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+    volumes:
+      - hf_cache:/app/.cache/huggingface     
+      - ./italian_universities:/app/italian_universities:ro
+      - ./faiss_cache:/app/faiss_cache
+      - ./src/italian_universities:/app/src/italian_universities:ro
+      - ./index_cache:/app/index_cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true
+    command:
+      #[ "sh", "-c", "python /app/src/build_cache.py && python /app/src/main.py"]
+    depends_on:
+      ollama:
+        condition: service_started
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: university-counselor-ollama
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11432:11434"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    restart: unless-stopped
+
+
+volumes:
+  ollama_models:
+  hf_cache:
