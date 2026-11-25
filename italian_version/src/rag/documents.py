@@ -50,7 +50,6 @@ def _clean_value(value: str | None) -> str | None:
 def _extract_field(text: str, field: str) -> str | None:
     """extract a metadata field from one record."""
     pattern = METADATA_PATTERNS.get(field)
-
     if pattern is None:
         raise ValueError(f"Unsupported metadata field: {field}")
 
@@ -129,7 +128,6 @@ def split_document_records(source: str, text: str) -> list[tuple[str, str]]:
     """
 
     text = clean_text(text)
-
     if not text:
         return []
 
@@ -138,13 +136,11 @@ def split_document_records(source: str, text: str) -> list[tuple[str, str]]:
 
         pieces = RECORD_SEPARATOR_PATTERN.split(text)
         records: list[tuple[str, str]] = []
-
         for piece in pieces:
             piece = clean_text(piece)
 
             if not piece:
                 continue
-
             records.append((source, piece))
 
         logger.debug("Split %s into %d separator-based records.", Path(source).name, len(records))
@@ -161,7 +157,6 @@ def split_document_records(source: str, text: str) -> list[tuple[str, str]]:
 
     # Preserve text before the first UNIVERSITY header.
     preamble = clean_text(text[: headers[0].start()])
-
     if preamble:
         records.append((source, preamble))
 
@@ -195,15 +190,12 @@ def _find_region_in_text(text: str) -> str | None:
 
     # Match longer city names first.
     city_entries = sorted(normalization.CITY_TO_REGION.items(), key=lambda item: len(item[0]), reverse=True)
-
     for city, region in city_entries:
         city_normalized = _normalize_for_matching(city)
-
         if not city_normalized:
             continue
 
         pattern = r"(?<!\w)" + re.escape(city_normalized) + r"(?!\w)"
-
         if re.search(pattern, normalized_text):
             normalized_region = normalization.normalize_region(region)
 
@@ -224,10 +216,8 @@ def infer_university_region(university_name: str | None, source_text: str, sourc
     This function does not use the student's home region.
     """
     explicit_region = _extract_field(source_text, "region")
-
     if explicit_region:
         normalized = normalization.normalize_region(explicit_region)
-
         if normalized in config.VALID_REGIONS:
             return normalized
 
@@ -332,10 +322,8 @@ def extract_course_names_from_text(text: str) -> list[str]:
         return []
 
     names = set()
-
     # use explicit COURSE fields record by record.
     records = split_document_records("<text>", text)
-
     for _, record in records:
         raw_course = _extract_field(record, "course")
         _, title = parse_course_field(raw_course)

@@ -126,7 +126,6 @@ def split_document_records(source: str, text: str) -> list[tuple[str, str]]:
     """
 
     text = clean_text(text)
-
     if not text:
         return []
 
@@ -135,7 +134,6 @@ def split_document_records(source: str, text: str) -> list[tuple[str, str]]:
 
         pieces = RECORD_SEPARATOR_PATTERN.split(text)
         records: list[tuple[str, str]] = []
-
         for piece in pieces:
             piece = clean_text(piece)
 
@@ -150,7 +148,6 @@ def split_document_records(source: str, text: str) -> list[tuple[str, str]]:
 
     # Fallback strategy: repeated UNIVERSITY headers
     headers = list(UNIVERSITY_HEADER_PATTERN.finditer(text))
-
     if len(headers) <= 1:
         return [(source, text)]
 
@@ -158,7 +155,6 @@ def split_document_records(source: str, text: str) -> list[tuple[str, str]]:
 
     # Preserve text before the first UNIVERSITY header.
     preamble = clean_text(text[: headers[0].start()])
-
     if preamble:
         records.append((source, preamble))
 
@@ -200,7 +196,6 @@ def _find_region_in_text(text: str) -> str | None:
             continue
 
         pattern = r"(?<!\w)" + re.escape(city_normalized) + r"(?!\w)"
-
         if re.search(pattern, normalized_text):
             normalized_region = normalization.normalize_region(region)
 
@@ -221,22 +216,20 @@ def infer_university_region(university_name: str | None, source_text: str, sourc
     This function does not use the student's home region.
     """
     explicit_region = _extract_field(source_text, "region")
-
     if explicit_region:
-        normalized = normalization.normalize_region(explicit_region)
 
+        normalized = normalization.normalize_region(explicit_region)
         if normalized in config.VALID_REGIONS:
             return normalized
 
     if university_name:
         region = _find_region_in_text(university_name)
-
         if region:
             return region
 
     if source:
-        region = _find_region_in_text(Path(source).stem)
 
+        region = _find_region_in_text(Path(source).stem)
         if region:
             return region
 
