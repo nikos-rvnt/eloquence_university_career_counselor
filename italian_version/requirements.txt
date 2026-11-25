@@ -1,0 +1,13 @@
+faiss-cpu
+sentence-transformers
+numpy
+scipy
+pandas
+langchain-ollama
+json-repair
+langchain-text-splitters
+langchain-core
+#gliner
+sdialog
+#gliner2
+gliner @ file:///app/libs/GLiNER
