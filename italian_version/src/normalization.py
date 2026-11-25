@@ -375,6 +375,7 @@ CAREER_HINTS = {
 
 
 def _safe_strip(value: Any) -> str:
+    """Safely strip whitespace from a string, returning an empty string for None."""
     if value is None:
         return ""
     if isinstance(value, str):
@@ -408,6 +409,7 @@ def normalize_name(name: str) -> str:
 
 
 def normalize_region(value: Any) -> str | None:
+    """Normalize a region value to one of the canonical regions: north, center, south, islands."""
     value = _safe_strip(value).lower()
     if not value:
         return None
@@ -427,9 +429,9 @@ def normalize_region(value: Any) -> str | None:
     return None
 
 
-# For academic_background, field_of_interest, career_goal, mobility,
-# replace the simple loop with _fuzzy_match using the existing hints:
+# For academic_background, field_of_interest, career_goal, mobility, replace the simple loop with _fuzzy_match using the existing hints:
 def normalize_academic_background(value: Any) -> str | None:
+    """Normalize academic background to canonical values using fuzzy matching."""
     value = _safe_strip(value).lower()
     if not value:
         return None
@@ -437,6 +439,7 @@ def normalize_academic_background(value: Any) -> str | None:
 
 
 def normalize_field_of_interest(value: Any) -> str | None:
+    """Normalize field of interest to canonical values using fuzzy matching."""
     value = _safe_strip(value).lower()
     if not value:
         return None
@@ -444,6 +447,7 @@ def normalize_field_of_interest(value: Any) -> str | None:
 
 
 def normalize_career_goal(value: Any) -> str | None:
+    """Normalize career goal to canonical values using fuzzy matching."""
     value = _safe_strip(value).lower()
     if not value:
         return None
@@ -454,6 +458,7 @@ MOBILITY_CANONICAL = {"strict_local", "nearby_ok", "italy_ok"}
 
 
 def normalize_mobility(value: Any) -> str | None:
+    """Normalize mobility preference to canonical values with fuzzy matching."""
     value = _safe_strip(value).lower()
     if not value:
         return None

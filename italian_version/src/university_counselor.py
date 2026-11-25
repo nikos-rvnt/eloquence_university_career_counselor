@@ -23,8 +23,6 @@ from sdialog.orchestrators import (
     SimpleReflexOrchestrator,
 )
 from sdialog.evaluation import LLMJudgeYesNo
-from functools import lru_cache
-from pydantic import BaseModel
 from langchain_core.output_parsers import PydanticOutputParser
 
 import rag.recommendations as recommendations
@@ -91,10 +89,8 @@ ENTITY_DESCRIPTIONS = {
     "ACADEMIC_BACKGROUND": "Current or previous educational background such as high school, scientific high school, bachelor's degree, master's degree, engineering degree.",
     "MOBILITY_PREFERENCE": "Preference regarding the willingness of the user to relocate or not for university studies.",
 }
-# ENTITY_LABELS = list(ENTITY_DESCRIPTIONS.keys())
 
 SLOT_ORDER = ["name", "academic_background", "field_of_interest", "career_goal", "region", "mobility_preference"]
-
 
 slot_parser = PydanticOutputParser(pydantic_object=models.SlotExtraction)
 # format_instructions = slot_parser.get_format_instructions()
@@ -119,7 +115,7 @@ def check_profile_completeness(profile_state: models.UserProfileState):
 
 
 def get_counseling_policy():
-    """Restituisce la policy di orientamento, l'ordine degli slot e i campi obbligatori del profilo dello studente."""
+    """Return the counseling policy, slot order, and required profile fields."""
     return {
         "goal": "Raccogliere il profilo dello studente e consigliare dipartimenti universitari adatti.",
         "required_slots": REQUIRED_SLOTS,
@@ -129,10 +125,11 @@ def get_counseling_policy():
     }
 
 
-#####################################################################
-
-
 class OutOfDomainGuardOrchestrator(BaseOrchestrator):
+    """
+    Out Of Domain Orchestrator: Detects if the user's latest request is unrelated to university counseling topics.
+    If so, instructs the system to politely remind the user about the system's role and redirect the conversation.
+    """
 
     def __init__(self, dialogue_tracker, model=None):
         super().__init__()
@@ -143,7 +140,6 @@ class OutOfDomainGuardOrchestrator(BaseOrchestrator):
         self.judgeyesno = LLMJudgeYesNo(
             """
 Rispondi sempre e solo in italiano, indipendentemente dalla lingua del testo seguente.
-
 La richiesta più recente dell'utente è estranea ai seguenti ambiti?
 - studi universitari
 - scelta del corso di laurea
@@ -169,24 +165,25 @@ Ecco l'ultima frase dell'utente:
             return None
 
         last_system = self.dialogue_tracker.get_last_system_turn() or ""
-
-        # judge_text = f"Last system message:\n{last_system}\n\n" f"User's latest utterance:\n{utterance}"
         try:
             result = self.judgeyesno.judge(dialog, last_system=last_system, utterance=utterance)
             # print("OOD result: ", result)
             if result.positive:
                 return "Spiega con gentilezza che puoi assistere solo con orientamento universitario e professionale."
         except Exception as e:
-            print("OOD ERROR:", repr(e))
-            print("OOD ERROR TYPE:", type(e))
+            # print("OOD ERROR:", repr(e))
+            # print("OOD ERROR TYPE:", type(e))
             traceback.print_exc()
 
         return None
 
 
-####################################################################
-# slot-filling & user profile completeness orchestrator
 class ProfileCollectionOrchestrator(BasePersistentOrchestrator):
+    """
+    User Profile Collection Orchestrator: Manages the collection of user profile information,
+    RIASEC interest assessment, and recommendation generation.
+    """
+
     def __init__(self, dialogue_tracker: models.DialogueTurnsTracker):
         super().__init__()
 
@@ -203,8 +200,7 @@ class ProfileCollectionOrchestrator(BasePersistentOrchestrator):
         self.recommendation_ready = False
         self.recommendation_text = None
 
-        # Used by the Agent postprocessor to force the grounded
-        # recommendation text to be returned verbatim.
+        # Used by the Agent postprocessor to force the grounded recommendation text to be returned verbatim.
         self.force_recommendation_response = False
 
         # RIASEC phase state (runs after the user profile state is complete).
@@ -212,8 +208,7 @@ class ProfileCollectionOrchestrator(BasePersistentOrchestrator):
         self.current_riasec_idx = 0  # index of the question just asked [0,7] --> 8 = done
         self.riasec_goodbye_pending = False
 
-        # Store the full RAG result so follow-up questions can be answered
-        # with the same evidence that produced the recommendations.
+        # Store the full RAG result so follow-up questions can be answered with the same evidence that produced the recommendations.
         self.rag_result = None
 
         # Follow-up Q&A state (post-recommendation).
@@ -252,6 +247,9 @@ class ProfileCollectionOrchestrator(BasePersistentOrchestrator):
         self.profile_state.reset()
 
     def get_welcome_message(self):
+        """
+        Returns the welcome message to be sent to the user when the conversation starts.
+        """
         if not self._boot_message_sent:
             self._boot_message_sent = True
             self.started = True
@@ -273,6 +271,10 @@ class ProfileCollectionOrchestrator(BasePersistentOrchestrator):
         return recommendations.retrieve_universities(self.profile_state.profile, riasec=self.profile_state.riasec)
 
     def lowest_confidence_filled_slot(self):
+        """
+        Returns the slot with the lowest confidence among the filled slots,
+         or None if all filled slots have confidence above the threshold.
+        """
         candidates = [
             slot
             for slot in SLOT_ORDER
@@ -283,12 +285,13 @@ class ProfileCollectionOrchestrator(BasePersistentOrchestrator):
         if not candidates:
             return None
 
-        return min(
-            candidates,
-            key=lambda s: self.profile_state.confidence.get(s, 0.0),
-        )
+        return min(candidates, key=lambda s: self.profile_state.confidence.get(s, 0.0))
 
     def generate_question(self, missing_slots):
+        """
+        Determines which slot(s) to ask about next, based on SLOT_ORDER and the list of missing slots.
+         Returns a string starting with "[REPHRASE] " so that the Agent will rephrase it naturally.
+        """
         if "academic_background" in missing_slots and "field_of_interest" in missing_slots:
             hint = (
                 "Chiedi allo studente il suo percorso di studi attuale "
@@ -304,6 +307,7 @@ class ProfileCollectionOrchestrator(BasePersistentOrchestrator):
             )
             return f"[REPHRASE] {hint}"
 
+        # Ask the first missing slot according to SLOT_ORDER
         for slot in SLOT_ORDER:
             if slot in missing_slots:
                 slot_hints = {
@@ -332,8 +336,11 @@ class ProfileCollectionOrchestrator(BasePersistentOrchestrator):
                 hint = slot_hints[slot]
                 return f"[REPHRASE] {hint}"
 
-    # ── RIASEC helpers ───────────────────────────────────────────────
+    # #### RIASEC helpers functions
     def _build_riasec_question(self, idx: int, is_first: bool = False, is_retry: bool = False) -> str:
+        """
+        Build a RIASEC question prompt for the Agent to rephrase naturally.
+        """
         question = extraction.RIASEC_QUESTIONS[idx]
         options = extraction.LIKERT_OPTIONS_TEXT
         total = len(extraction.RIASEC_QUESTIONS)
@@ -359,17 +366,17 @@ class ProfileCollectionOrchestrator(BasePersistentOrchestrator):
         body = f"{progress} {question}\n\n{options_lines}"
         full_text = ("\n\n".join(parts) + "\n\n" + body) if parts else body
 
-        # Force the exact text through the postprocessor; the Agent's own
-        # paraphrase (which is unreliable for non-English text) is discarded.
+        # Force the exact text through the postprocessor; the Agent's own paraphrase (which is unreliable for non-English text) is discarded.
         self.riasec_response_text = full_text
         self.force_riasec_response = True
 
         return {body}
 
     def _handle_riasec_turn(self, utterance: str):
+        """Process one turn while the RIASEC phase is active."""
         total = len(extraction.RIASEC_QUESTIONS)
 
-        # ── Goodbye handling (unchanged) ─────────────────────────
+        # Goodbye handling
         if self.riasec_goodbye_pending:
             if self._is_goodbye(utterance):
                 return None
@@ -427,6 +434,7 @@ class ProfileCollectionOrchestrator(BasePersistentOrchestrator):
         return self._generate_recommendations()
 
     def _is_goodbye(self, utterance: str) -> bool:
+        """Detect if the user's utterance is a goodbye or exit request."""
         if not utterance:
             return False
         text = utterance.casefold().strip()
@@ -440,6 +448,9 @@ class ProfileCollectionOrchestrator(BasePersistentOrchestrator):
         )
 
     def _is_recommendation_followup(self, utterance: str) -> bool:
+        """
+        Detect requests for recommendations after profile collection without requiring another LLM call.
+        """
         text = utterance.casefold()
         phrases = [
             "waiting for your recommendations",
@@ -474,20 +485,15 @@ class ProfileCollectionOrchestrator(BasePersistentOrchestrator):
 
     def _generate_recommendation_followup_answer(self, utterance: str) -> str:
         """
-        Answer a follow-up question about the already-delivered
-        recommendations, in particular capability/suitability questions
-        ("Am I really capable of studying X?", "Do I have the right
-        background?", "Is this too hard for me?").
+        Answer a follow-up question about the already-delivered recommendations, in particular capability/suitability questions
+        ("Am I really capable of studying X?", "Do I have the right background?", "Is this too hard for me?").
 
         The answer is grounded in:
           - the collected student profile,
           - the RIASEC profile,
-          - the previously generated per-programme reasoning
-            (`why_it_matches`) in `self.rag_result["validated_departments"]`.
+          - the previously generated per-programme reasoning (`why_it_matches`) in `self.rag_result["validated_departments"]`.
 
-        The method must not invent admission requirements, curricula,
-        workloads, or career outcomes that are not present in the
-        supplied context.
+        The method must not invent admission requirements, curricula, workloads, or career outcomes that are not present in the context.
         """
         profile = self.profile_state.profile
         riasec = self.profile_state.riasec
@@ -522,7 +528,6 @@ Sei un consulente universitario che risponde a una domanda di approfondimento
 su raccomandazioni già fornite.
 
 Il tuo compito:
-
 1. Se lo studente chiede se è personalmente capace / preparato / adatto ai
    programmi consigliati, rispondi in modo diretto e onesto. Collega
    esplicitamente la tua risposta a:
@@ -544,7 +549,6 @@ Il tuo compito:
    a parlare dei programmi consigliati.
 
 Regole rigide:
-
 - Non inventare requisiti di ammissione, esami, voti, curricula, carichi di
   lavoro, sbocchi professionali, borse di studio o classifiche.
 - Non promettere l'ammissione. Non garantire il successo.
@@ -619,16 +623,10 @@ Restituisci SOLO il testo della risposta, senza premesse né markdown.
         except Exception as exc:
             print("Recommendation generation error:", exc)
 
-            self.recommendation_text = (
-                "Mi dispiace, al momento non riesco a recuperare le "
-                "raccomandazioni universitarie. Ti chiedo di richiederle "
-                "di nuovo."
-            )
+            self.recommendation_text = "Mi dispiace, al momento non riesco a recuperare le raccomandazioni universitarie. Ti chiedo di richiederle di nuovo."
             self.recommendation_ready = False
             self.force_recommendation_response = True
 
-            # profile_complete remains True, so the next request can retry
-            # the recommendation pipeline instead of asking profile questions again
             self.finished = False
 
             return self.recommendation_text
@@ -649,14 +647,7 @@ Restituisci SOLO il testo della risposta, senza premesse né markdown.
 
             return None
 
-        # Profile is already complete and recommendations succeeded
-        # if self.finished:
-
-        #     if self._is_recommendation_followup(utterance):
-        #         self.force_recommendation_response = True
-
-        #     return None
-        # ── Post-recommendation phase ─────────────────────────────────
+        # --> Post-recommendation phase
         if self.post_recommendation:
             text = (utterance or "").casefold().strip()
 
@@ -714,13 +705,13 @@ Restituisci SOLO il testo della risposta, senza premesse né markdown.
             self.force_followup_response = True
             return answer
 
-        # ── Legacy finished branch (kept for safety) ───────────────────
+        # Legacy finished branch (kept for safety)
         if self.finished:
             if self._is_recommendation_followup(utterance):
                 self.force_recommendation_response = True
             return None
 
-        # ── RIASEC phase ────────────────────────────────────────────
+        # --> RIASEC phase
         # Profile is complete but RIASEC is still running.
         if self.profile_complete and not self.riasec_completed:
             return self._handle_riasec_turn(utterance)
@@ -732,7 +723,7 @@ Restituisci SOLO il testo della risposta, senza premesse né markdown.
                 return None
             return self._generate_recommendations()
 
-        #  profile collection
+        # profile collection
         extraction.update_profile_from_text(
             utterance, profile_state=self.profile_state, dialogue_tracker=self.dialogue_tracker
         )
@@ -772,19 +763,17 @@ class SecureLengthOrchestrator(LengthOrchestrator):
         return super().instruct(dialog, utterance)
 
 
-# Module-level holder so the postprocessor can access the orchestrator
-# created later inside `__main__`.
+# Module-level holder so the postprocessor can access the orchestrator created later inside `__main__`.
 global _profile_guard_ref
 
 
 def postprocess_counselor_response(output_text: str) -> str:
     """
     Ensure that the two LLM-generated, grounded texts are returned verbatim:
-
       1. the recommendation list, and
       2. the recommendation follow-up answer.
 
-    sdialog calls this with the Agent LLM output string. In both cases the
+    SDialog calls this with the Agent LLM output string. In both cases the
     orchestrator has already produced the final user-visible text, so the
     Agent must not paraphrase, summarise, or modify it.
     """
@@ -805,9 +794,6 @@ def postprocess_counselor_response(output_text: str) -> str:
         return guard.riasec_response_text
 
     return output_text
-
-
-# counselor = counselor | ood_guard | profile_guard | length_guard | finish_reflex
 
 
 # run Counselor DM Server
