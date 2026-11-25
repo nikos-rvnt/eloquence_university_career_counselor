@@ -38,6 +38,7 @@ class RIASECProfile:
 
 
 class SlotExtraction(BaseModel):
+    """Container for the extracted slots from the user's input."""
 
     gender: str | None = None
     name: str | None = None
@@ -50,6 +51,7 @@ class SlotExtraction(BaseModel):
 
 @dataclass
 class UserProfileState:
+    """Container for the user's profile state, including extracted slots, confidence scores, and sources."""
 
     profile: Dict[str, Any] = field(
         default_factory=lambda: {
@@ -89,7 +91,7 @@ class UserProfileState:
     riasec: RIASECProfile = field(default_factory=RIASECProfile)
 
     def reset(self):
-
+        """Reset the user profile state to its initial values, clearing all slots, confidence scores, and sources."""
         self.riasec.reset()
 
         for slot in self.profile:
@@ -102,7 +104,10 @@ class UserProfileState:
             self.sources[slot] = None
 
     def update_slot(self, slot: str, value: Any, confidence: float, source: str) -> bool:
-
+        """
+        Update a specific slot in the user profile state if the new value has higher confidence than the current value.
+        Returns True if the slot was updated, False otherwise.
+        """
         if value is None:
             return False
 
@@ -124,6 +129,7 @@ class DialogueTurn:
 
 
 class DialogueTurnsTracker:
+    """Tracks the dialogue turns between the user and the system, maintaining a history of recent turns."""
 
     def __init__(self, max_turns: int = 50):
         self.turns: Deque[DialogueTurn] = deque(maxlen=max_turns)
@@ -167,7 +173,7 @@ class DialogueTurnsTracker:
 
 @dataclass(slots=True)
 class DocumentChunk:
-    """an indexed text chunk and the metadata associated with its university programme record"""
+    """An indexed text chunk struct and the metadata associated with its university programme record"""
 
     text: str
     source: str
@@ -186,6 +192,8 @@ class DocumentChunk:
 
 
 class RecommendedDepartment(BaseModel):
+    """Container for a recommended department, including its name, reason for recommendation, source files, and URL."""
+
     name: str
     why_it_matches: str
     source_files: list[str] = []

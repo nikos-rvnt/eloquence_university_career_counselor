@@ -9,7 +9,7 @@ import normalization
 class RIASECProfile:
     """Container for the student's RIASEC assessment."""
 
-    # One entry per question (index 0..7). None = excluded / uninterpretable.
+    # One entry per question (index 0...7). None = excluded/uninterpretable.
     valences: List[Optional[int]] = field(default_factory=lambda: [None] * 8)
 
     # Computed scores per dimension (R, I, A, S, E, C).
@@ -18,8 +18,7 @@ class RIASECProfile:
     # Top-3 Holland code, e.g. "RIS".
     profile: Optional[str] = None
 
-    # Human-readable description, e.g.
-    # "The user seems to be Realistic, Investigative, and Social."
+    # Human-readable description, e.g. "The user seems to be Realistic, Investigative, and Social."
     description: Optional[str] = None
 
     # Confidence heuristic = clamp(3rd - 4th score, 0, 1).
@@ -38,6 +37,7 @@ class RIASECProfile:
 
 
 class SlotExtraction(BaseModel):
+    """Container for the extracted slots from the user's input."""
 
     gender: str | None = None
     name: str | None = None
@@ -50,6 +50,7 @@ class SlotExtraction(BaseModel):
 
 @dataclass
 class UserProfileState:
+    """Container for the user's profile state, including extracted slots, confidence scores, and sources."""
 
     profile: Dict[str, Any] = field(
         default_factory=lambda: {
@@ -89,7 +90,7 @@ class UserProfileState:
     riasec: RIASECProfile = field(default_factory=RIASECProfile)
 
     def reset(self):
-
+        """Reset the user profile state to its initial values, clearing all slots, confidence scores, and sources."""
         self.riasec.reset()
 
         for slot in self.profile:
@@ -102,7 +103,10 @@ class UserProfileState:
             self.sources[slot] = None
 
     def update_slot(self, slot: str, value: Any, confidence: float, source: str) -> bool:
-
+        """
+        Update a specific slot in the user profile state if the new value has higher confidence than the current value.
+        Returns True if the slot was updated, False otherwise.
+        """
         if value is None:
             return False
 
@@ -124,6 +128,7 @@ class DialogueTurn:
 
 
 class DialogueTurnsTracker:
+    """Tracks the dialogue turns between the user and the system, maintaining a history of recent turns."""
 
     def __init__(self, max_turns: int = 50):
         self.turns: Deque[DialogueTurn] = deque(maxlen=max_turns)
@@ -131,28 +136,17 @@ class DialogueTurnsTracker:
     def add_user_turn(self, text: str) -> None:
         text = normalization._safe_strip(text)
         if text:
-            self.turns.append(
-                DialogueTurn(
-                    speaker="user",
-                    text=text,
-                )
-            )
+            self.turns.append(DialogueTurn(speaker="user", text=text))
 
     def add_system_turn(self, text: str):
         text = normalization._safe_strip(text)
         if text:
-            self.turns.append(
-                DialogueTurn(
-                    speaker="system",
-                    text=text,
-                )
-            )
+            self.turns.append(DialogueTurn(speaker="system", text=text))
 
     def reset(self):
         self.turns.clear()
 
     def get_recent_context(self, max_turns: int = 6) -> str:
-
         recent = list(self.turns)[-max_turns:]
         return "\n".join(f"{t.speaker}: {t.text}" for t in recent)
 
@@ -167,7 +161,7 @@ class DialogueTurnsTracker:
 
 @dataclass(slots=True)
 class DocumentChunk:
-    """an indexed text chunk and the metadata associated with its university programme record"""
+    """An indexed text chunk struct and the metadata associated with its university programme record"""
 
     text: str
     source: str
@@ -186,6 +180,8 @@ class DocumentChunk:
 
 
 class RecommendedDepartment(BaseModel):
+    """Container for a recommended department, including its name, reason for recommendation, source files, and URL."""
+
     name: str
     why_it_matches: str
     source_files: list[str] = []
