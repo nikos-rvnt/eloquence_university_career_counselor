@@ -37,9 +37,8 @@ ENTITY_DESCRIPTIONS = {
 #   are female in English or French. Because the system is used
 #   inside Italian universities, the Italian reading wins.
 # ────────────────────────────────────────────────────────────────
-
 FEMALE_NAMES: dict[str, str] = {
-    # ── Italian female names (100) ─────────────────────────────
+    # ── Italian female names (100)
     "maria": "Mary",
     "anna": "Ann",
     "giulia": "Julia",
@@ -144,7 +143,7 @@ FEMALE_NAMES: dict[str, str] = {
     "sonia": "Sonia",
     "susanna": "Susan",
     "tiziana": "Tiziana",
-    # ── English female names commonly used in Italy (50) ───────
+    # ── English female names commonly used in Italy (50)
     "helen": "Helen",
     "elizabeth": "Elizabeth",
     "sarah": "Sarah",
@@ -202,7 +201,7 @@ FEMALE_NAMES: dict[str, str] = {
 }
 
 MALE_NAMES: dict[str, str] = {
-    # ── Italian male names (100) ───────────────────────────────
+    # ── Italian male names (100)
     "marco": "Mark",
     "luca": "Luke",
     "alberto": "Albert",
@@ -363,7 +362,7 @@ MALE_NAMES: dict[str, str] = {
     "valerio": "Valerius",
     "virgilio": "Virgil",
     "zeno": "Zeno",
-    # ── English male names commonly used in Italy (50) ─────────
+    # ── English male names commonly used in Italy (50)
     "john": "John",
     "james": "James",
     "robert": "Robert",
@@ -435,10 +434,7 @@ MALE_NAMES: dict[str, str] = {
 # If a name appears in both dicts (e.g. some overlap), the MALE
 # entry is overwritten by FEMALE in this build — but the dicts
 # above were built to be disjoint, so no conflict occurs.
-NAME_TO_GENDER: dict[str, str] = {
-    **{name: "Male" for name in MALE_NAMES},
-    **{name: "Female" for name in FEMALE_NAMES},
-}
+NAME_TO_GENDER: dict[str, str] = {**{name: "Male" for name in MALE_NAMES}, **{name: "Female" for name in FEMALE_NAMES}}
 
 
 def best_entity_text(entity_items: Any) -> Tuple[str | None, float]:
@@ -522,56 +518,148 @@ def complete_gender_slot(profile_state: models.UserProfileState) -> bool:
 
 
 class EntityExtractor:
+    """
+    Extracts structured entities from user text using GLiNER and regex fallbacks.
+    """
+
     def __init__(self):
         self._model = None
         # self.model = GLiNER.from_pretrained("urchade/gliner_multi-v2.1").to(config.DEVICE)
 
         # A simpler regex fallback for common patterns
         self.regex_patterns = {
+            # ── REGION ───────────────────────────────────────────────────────
             "REGION": re.compile(
-                r"\b(north|northern|nord|center|central|centro|south|southern|sud|island|islands|sicily|sardinia|sicilia|sardegna|"
-                r"milano|roma|napoli|torino|bologna|firenze|genova|venezia|padova|bari|cagliari|palermo|catanzaro|l'aquila|"
-                r"teramo|pescara|chieti|ancona|perugia|pisa|siena|trento|trieste|udine|modena|parma|ferrara|ravenna|"
-                r"rimini|forli|cesena|piacenza|cremona|mantova|bergamo|brescia|como|varese|sondrio|lecco|asti|alessandria|"
-                r"cuneo|novara|verbania|biella|ivrea|domodossola|viterbo|rieti|frosinone|latina|terni|orvieto|spoleto|"
-                r"civitanova|salerno|foggia|lecce|brindisi|taranto|potenza|matera|crotone|cosenza|reggio calabria|"
-                r"vibo valentia|campobasso|isernia|avellino|benevento|caserta|cezze|siracusa|messina|trapani|agrigento|"
-                r"ragusa|sassari|nuoro|oristano)\b",
+                r"\b("
+                # macro-regions
+                r"north|northern|nord|settentrionale|settentrionali|"
+                r"center|central|centro|centrale|centrali|middle italy|"
+                r"south|southern|sud|meridionale|meridionali|mezzogiorno|"
+                r"island|islands|isola|isole|sicily|sardinia|sicilia|sardegna|"
+                # north cities
+                r"milano|torino|genova|venezia|padova|verona|trieste|trento|bolzano|udine|"
+                r"bologna|modena|parma|ferrara|ravenna|rimini|forli|cesena|piacenza|"
+                r"cremona|mantova|bergamo|brescia|como|varese|sondrio|lecco|"
+                r"asti|alessandria|cuneo|novara|verbania|biella|ivrea|domodossola|aosta|"
+                # center cities
+                r"roma|firenze|pisa|perugia|ancona|"
+                r"l'aquila|teramo|pescara|chieti|siena|arezzo|livorno|lucca|grosseto|"
+                r"macerata|urbino|pesaro|fermo|viterbo|rieti|frosinone|latina|terni|"
+                r"orvieto|spoleto|civitanova|"
+                # south cities
+                r"napoli|bari|salerno|foggia|lecce|brindisi|taranto|potenza|matera|"
+                r"catanzaro|crotone|cosenza|reggio calabria|vibo valentia|"
+                r"campobasso|isernia|avellino|benevento|caserta|cezze|"
+                # islands
+                r"palermo|catania|cagliari|siracusa|messina|trapani|agrigento|" r"ragusa|sassari|nuoro|oristano" r")\b",
                 re.I,
             ),
+            # ── FIELD_OF_INTEREST ────────────────────────────────────────────
             "FIELD_OF_INTEREST": re.compile(
-                r"\b(computer science|informatics|ai|artificial intelligence|data science|machine learning|software engineering|"
-                r"programming|cybersecurity|information technology|computer engineering|civil engineering|mechanical engineering|"
-                r"electronic engineering|industrial engineering|biomedical engineering|materials engineering|telecommunications|"
-                r"physics|mathematics|chemistry|biology|biotechnology|environmental science|geology|astronomy|statistics|"
-                r"medicine|surgery|pharmacy|nursing|physiotherapy|dentistry|veterinary|nutrition|psychology|social work|"
-                r"sociology|education|pedagogy|philosophy|history|literature|linguistics|law|economics|management|marketing|"
-                r"political science|international relations|architecture|design|urban planning|arts|fine arts|music|cinema|"
-                r"theatre|cultural heritage|museology|conservation|visual arts|graphic design|fashion design|"
-                r"ingegneria|informatica|fisica|matematica|chimica|biologia|biotecnologia|medicina|farmacia|psicologia|"
-                r"giurisprudenza|economia|architettura|lettere|filosofia|scienze della formazione|scienze politiche)\b",
+                r"\b("
+                # English (kept as fallback; canonical mapping lives in normalization)
+                r"computer science|informatics|artificial intelligence|data science|machine learning|"
+                r"software engineering|programming|cybersecurity|information technology|"
+                r"computer engineering|civil engineering|mechanical engineering|electronic engineering|"
+                r"industrial engineering|biomedical engineering|materials engineering|telecommunications|"
+                r"physics|mathematics|chemistry|biology|biotechnology|environmental science|"
+                r"geology|astronomy|statistics|medicine|surgery|pharmacy|nursing|physiotherapy|"
+                r"dentistry|veterinary|nutrition|psychology|social work|sociology|education|"
+                r"pedagogy|philosophy|history|literature|linguistics|law|economics|management|"
+                r"marketing|political science|international relations|architecture|design|"
+                r"urban planning|arts|fine arts|music|cinema|theatre|cultural heritage|"
+                r"museology|conservation|visual arts|graphic design|fashion design|"
+                # Italian — longer phrases first so they match before shorter ones
+                r"scienze della formazione|scienze dell'educazione|scienze della comunicazione|"
+                r"scienze motorie|scienze ambientali|scienze biologiche|scienze naturali|"
+                r"scienze infermieristiche|scienze politiche|scienze internazionali|"
+                r"relazioni internazionali|pianificazione urbanistica|"
+                r"servizio sociale|beni culturali|storia dell'arte|"
+                r"ingegneria|ingegnerie|informatica|informatiche|fisica|matematica|"
+                r"chimica|biologia|biotecnologia|medicina|chirurgia|farmacia|"
+                r"infermieristica|fisioterapia|odontoiatria|veterinaria|nutrizione|"
+                r"psicologia|sociologia|pedagogia|filosofia|storia|letteratura|lettere|"
+                r"linguistica|giurisprudenza|diritto|economia|management|marketing|"
+                r"architettura|design|arte|arti|belle arti|arti visive|"
+                r"musica|cinema|teatro|museologia|conservazione|"
+                r"geologia|astronomia|statistica|archeologia|graphic design|fashion design"
+                r")\b",
                 re.I,
             ),
+            # ── ACADEMIC_BACKGROUND ──────────────────────────────────────────
             "ACADEMIC_BACKGROUND": re.compile(
-                r"\b(high school|secondary school|scuola superiore|liceo scientifico|liceo classico|liceo linguistico|"
-                r"liceo artistico|liceo musicale|istituto tecnico|istituto professionale|bachelor|bachelor's degree|"
-                r"laurea triennale|master|master's degree|laurea magistrale|phd|doctorate|dottorato|"
-                r"engineering degree|diploma di laurea|specializzazione|post-laurea)\b",
+                r"\b("
+                # English
+                r"high school|secondary school|bachelor|bachelor's degree|"
+                r"master|master's degree|phd|doctorate|engineering degree|"
+                # Italian — school types (longest first)
+                r"liceo scientifico|liceo classico|liceo linguistico|liceo artistico|"
+                r"liceo musicale|liceo delle scienze umane|liceo delle scienze applicate|"
+                r"istituto tecnico|istituto professionale|scuola superiore|"
+                # Italian — degrees
+                r"laurea magistrale|laurea triennale|laurea in ingegneria|"
+                r"diploma di laurea|dottorato di ricerca|specializzazione|post-laurea|"
+                r"dottorato|magistrale|triennale|diploma|maturita|maturità|"
+                r"laurea"
+                r")\b",
                 re.I,
             ),
+            # ── CAREER_GOAL ──────────────────────────────────────────────────
             "CAREER_GOAL": re.compile(
-                r"\b(research|academic|phd|scientist|researcher|industry|business|company|corporate|"
-                r"software engineer|developer|doctor|medical|physician|psychologist|therapist|teacher|professor|"
-                r"school|teaching|consulting|consultant|advisor|public sector|civil service|government|administration|"
-                r"politics|lawyer|solicitor|barrister|judge|engineer|architect|designer|entrepreneur|startup|"
-                r"management|healthcare|hospital|ricerca|docenza|consulenza|libera professione|sanità)\b",
+                r"\b("
+                # English
+                r"research|academic|scientist|researcher|industry|business|company|corporate|"
+                r"software engineer|developer|doctor|medical|physician|psychologist|"
+                r"therapist|teacher|professor|school|teaching|consulting|consultant|advisor|"
+                r"public sector|civil service|government|administration|politics|"
+                r"lawyer|solicitor|barrister|judge|engineer|architect|designer|"
+                r"entrepreneur|startup|management|healthcare|hospital|"
+                # Italian — longer phrases first
+                r"pubblica amministrazione|settore pubblico|pubblico impiego|"
+                r"libera professione|ricerca accademica|"
+                r"insegnamento|docenza|consulenza|sanita|sanità|"
+                r"ricercatore|ricercatrice|ricerca|"
+                r"insegnante|professore|professoressa|formatore|formatrice|"
+                r"medico|medica|dottore|dottoressa|chirurgo|"
+                r"psicologo|psicologa|terapista|fisioterapista|infermiere|infermiera|"
+                r"sviluppatore|sviluppatrice|programmatore|programmatrice|"
+                r"ingegnere|architetto|architetta|designer|"
+                r"avvocato|avvocatessa|giudice|magistrato|"
+                r"imprenditore|imprenditrice|manager|dirigente|funzionario|"
+                r"amministrazione|governo|politica|ospedale|clinica|"
+                r"accademia|universita|università|insegnare|"
+                r"industria|azienda|impresa|societa|società|libera professione"
+                r")\b",
                 re.I,
             ),
+            # ── MOBILITY_PREFERENCE ──────────────────────────────────────────
             "MOBILITY_PREFERENCE": re.compile(
-                r"\b(cannot move|can't move|cannot relocate|can't relocate|must stay|stay home|strict local|"
-                r"stay close|near home|nearby|close to home|local|prefer local|anywhere|all italy|across italy|"
-                r"move anywhere|relocate anywhere|can relocate|could relocate|willing to relocate|"
-                r"non posso spostarmi|voglio restare vicino|disponibile a trasferirmi|ovunque in italia)\b",
+                r"\b("
+                # ── strict_local — English
+                r"cannot move|can't move|cannot relocate|can't relocate|must stay|" r"stay home|strict local|"
+                # ── strict_local — Italian
+                r"non posso spostarmi|non posso muovermi|non posso trasferirmi|"
+                r"devo restare|devo rimanere|devo stare|"
+                r"voglio restare qui|voglio restare a casa|voglio rimanere qui|voglio rimanere a casa|"
+                r"non voglio muovermi|non voglio trasferirmi|non voglio spostarmi|"
+                r"solo in zona|solo qui|solo nella mia regione|vincolo locale|"
+                # ── nearby_ok — English
+                r"stay close|near home|nearby|close to home|prefer local|local|"
+                # ── nearby_ok — Italian
+                r"zona vicina|regioni vicine|vicino a casa|vicino a me|"
+                r"preferisco restare vicino|preferirei restare vicino|preferisco rimanere vicino|"
+                r"mezza italia|centro-nord|nord e centro|non troppo lontano|"
+                # ── italy_ok — English
+                r"anywhere|all italy|across italy|move anywhere|relocate anywhere|"
+                r"can relocate|could relocate|willing to relocate|"
+                # ── italy_ok — Italian
+                r"ovunque|tutta italia|in tutta italia|tutto il paese|in tutto il paese|"
+                r"posso muovermi|posso trasferirmi|posso spostarmi|"
+                r"disponibile a trasferirmi|disponibile a muovermi|disponibile a spostarmi|"
+                r"non ho problemi a spostarmi|non ho problemi a muovermi|non ho problemi a trasferirmi|"
+                r"qualsiasi citta|qualsiasi città|qualsiasi regione|qualsiasi parte d'italia|"
+                r"ovunque in italia"
+                r")\b",
                 re.I,
             ),
         }
@@ -587,6 +675,9 @@ class EntityExtractor:
         return self._model
 
     def extract(self, text: str) -> dict:
+        """
+        Extract entities from the input text using GLiNER and regex fallback.
+        """
         # Primary: GLiNER with lower threshold
         entities = self.model.predict_entities(text, ENTITY_DESCRIPTIONS, threshold=0.45)
         extracted = {}
@@ -611,6 +702,7 @@ _extractor_instance = None
 
 
 def get_extractor():
+    """Get the singleton instance of the entity extractor"""
     global _extractor_instance
     if _extractor_instance is None:
         _extractor_instance = EntityExtractor()
@@ -621,15 +713,17 @@ entity_verification_llm = llm.get_llm()  # stronger model
 
 
 def parse_slot_output(llm_output: str) -> models.SlotExtraction:
-
+    """
+    Parse the LLM output into a SlotExtraction object.
+    If parsing fails, attempt to repair the JSON and parse again.
+    If all attempts fail, return an empty SlotExtraction object.
+    """
     try:
         return slot_parser.parse(llm_output)
-
     except Exception:
         try:
             repaired = repair_json(llm_output)
             return models.SlotExtraction.model_validate_json(repaired)
-
         except Exception:
             return models.SlotExtraction()
 
@@ -731,6 +825,10 @@ PROFILE_SLOTS = (
 def update_profile_from_text(
     text: str, profile_state: models.UserProfileState, dialogue_tracker: models.DialogueTurnsTracker
 ) -> dict:
+    """
+    Update the user profile state from the input text.
+    Returns a dict with the updated profile, confidence, sources, and debug info.
+    """
     gliner_entities = get_extractor().extract(text)
     context = dialogue_tracker.get_recent_context() if dialogue_tracker else ""
 
@@ -971,6 +1069,8 @@ _RIASEC_LLM = None
 
 
 def _get_riasec_llm():
+    """
+    Get the singleton LLM instance for RIASEC answer interpretation."""
     global _RIASEC_LLM
     if _RIASEC_LLM is None:
         _RIASEC_LLM = llm.get_llm(format="json")
@@ -1033,7 +1133,6 @@ Restituisci SOLO JSON valido esattamente in questo formato (il valore di "valenc
 
         val = parsed.get("valence") if isinstance(parsed, dict) else None
         result = _coerce_valence(val)
-
         if result is None:
             print(f"[riasec] Q{question_idx + 1}: could not coerce valence from {val!r} (raw: {raw!r})")
 

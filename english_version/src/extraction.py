@@ -37,9 +37,8 @@ ENTITY_DESCRIPTIONS = {
 #   are female in English or French. Because the system is used
 #   inside Italian universities, the Italian reading wins.
 # ────────────────────────────────────────────────────────────────
-
 FEMALE_NAMES: dict[str, str] = {
-    # ── Italian female names (100) ─────────────────────────────
+    # ── Italian female names (100)
     "maria": "Mary",
     "anna": "Ann",
     "giulia": "Julia",
@@ -144,7 +143,7 @@ FEMALE_NAMES: dict[str, str] = {
     "sonia": "Sonia",
     "susanna": "Susan",
     "tiziana": "Tiziana",
-    # ── English female names commonly used in Italy (50) ───────
+    # ── English female names commonly used in Italy (50)
     "helen": "Helen",
     "elizabeth": "Elizabeth",
     "sarah": "Sarah",
@@ -202,13 +201,13 @@ FEMALE_NAMES: dict[str, str] = {
 }
 
 MALE_NAMES: dict[str, str] = {
-    # ── Italian male names (100) ───────────────────────────────
+    # ── Italian male names (100)
     "marco": "Mark",
     "luca": "Luke",
     "alberto": "Albert",
     "matteo": "Matthew",
     "alessandro": "Alexander",
-    "andrea": "Andrew",  # male in Italian, female in English
+    "andrea": "Andrew",  # male in Italian but female in English
     "francesco": "Francis",
     "giuseppe": "Joseph",
     "antonio": "Anthony",
@@ -363,7 +362,7 @@ MALE_NAMES: dict[str, str] = {
     "valerio": "Valerius",
     "virgilio": "Virgil",
     "zeno": "Zeno",
-    # ── English male names commonly used in Italy (50) ─────────
+    # ── English male names commonly used in Italy (50)
     "john": "John",
     "james": "James",
     "robert": "Robert",
@@ -431,14 +430,9 @@ MALE_NAMES: dict[str, str] = {
     "daniel": "Daniel",
 }
 
-# Combined lookup table.
-# If a name appears in both dicts (e.g. some overlap), the MALE
-# entry is overwritten by FEMALE in this build — but the dicts
-# above were built to be disjoint, so no conflict occurs.
-NAME_TO_GENDER: dict[str, str] = {
-    **{name: "Male" for name in MALE_NAMES},
-    **{name: "Female" for name in FEMALE_NAMES},
-}
+# Combined lookup table. If a name appears in both dicts (e.g. some overlap), the MALE
+# entry is overwritten by FEMALE in this build — but the dicts above were built to be disjoint, so no conflict occurs.
+NAME_TO_GENDER: dict[str, str] = {**{name: "Male" for name in MALE_NAMES}, **{name: "Female" for name in FEMALE_NAMES}}
 
 
 def best_entity_text(entity_items: Any) -> Tuple[str | None, float]:
@@ -522,6 +516,10 @@ def complete_gender_slot(profile_state: models.UserProfileState) -> bool:
 
 
 class EntityExtractor:
+    """
+    Extracts entities from user input using GLiNER and regex fallback.
+    """
+
     def __init__(self):
         self._model = None
         # self.model = GLiNER.from_pretrained("urchade/gliner_multi-v2.1").to(config.DEVICE)
@@ -579,7 +577,7 @@ class EntityExtractor:
     @property
     def model(self):
         if self._model is None:
-            print("[extraction] Loading GLiNER model (this happens once)...")
+            print("[extraction] Loading GLiNER model (this happens once)... ")
             self._model = GLiNER.from_pretrained("urchade/gliner_multi-v2.1").to(config.DEVICE)
             self._model.eval()
             print("[extraction] GLiNER ready.")
@@ -587,6 +585,9 @@ class EntityExtractor:
         return self._model
 
     def extract(self, text: str) -> dict:
+        """
+        Extract entities from the input text using GLiNER and regex fallback.
+        """
         # Primary: GLiNER with lower threshold
         entities = self.model.predict_entities(text, ENTITY_DESCRIPTIONS, threshold=0.45)
         extracted = {}
@@ -611,6 +612,7 @@ _extractor_instance = None
 
 
 def get_extractor():
+    """Get the singleton instance of the entity extractor"""
     global _extractor_instance
     if _extractor_instance is None:
         _extractor_instance = EntityExtractor()
@@ -621,15 +623,17 @@ entity_verification_llm = llm.get_llm()  # stronger model
 
 
 def parse_slot_output(llm_output: str) -> models.SlotExtraction:
-
+    """
+    Parse the LLM output into a SlotExtraction object.
+    If parsing fails, attempt to repair the JSON and parse again.
+    If all attempts fail, return an empty SlotExtraction object.
+    """
     try:
         return slot_parser.parse(llm_output)
-
     except Exception:
         try:
             repaired = repair_json(llm_output)
             return models.SlotExtraction.model_validate_json(repaired)
-
         except Exception:
             return models.SlotExtraction()
 
@@ -717,6 +721,10 @@ PROFILE_SLOTS = (
 def update_profile_from_text(
     text: str, profile_state: models.UserProfileState, dialogue_tracker: models.DialogueTurnsTracker
 ) -> dict:
+    """
+    Update the user profile state from the input text.
+    Returns a dict with the updated profile, confidence, sources, and debug info.
+    """
     gliner_entities = get_extractor().extract(text)
     context = dialogue_tracker.get_recent_context() if dialogue_tracker else ""
 
@@ -828,15 +836,14 @@ LIKERT_OPTIONS_TEXT = "Strongly dislike, Dislike, Neutral, Like, Strongly like"
 def compute_riasec_scores(valences: list) -> dict:
     """
     score[c] = round( Σ_i valence[i]·weight[i][c] / (2·Σ_i weight[i][c]), 3 )
-
-    Items whose valence is None (unanswered / uninterpretable) are excluded
+    --> Items whose valence is None (unanswered / uninterpretable) are excluded
     from both numerator and denominator, per the A4 decision.
     """
     scores: dict = {}
     for dim in RIASEC_DIMENSIONS:
+
         numerator = 0.0
         weight_sum = 0.0
-
         for i, weights in enumerate(RIASEC_WEIGHTS):
             if valences[i] is None:
                 continue
@@ -858,7 +865,6 @@ def _total_dimension_weight(dim: str) -> float:
 def compute_riasec_profile(scores: dict) -> tuple[str, str, float]:
     """
     Returns (top3_code, description, confidence).
-
     Tie-breaking (B2 = option c): prefer the dimension with the *higher*
     total weight sum (the more reliable dimension), then fall back to the
     canonical RIASEC order.
@@ -872,7 +878,6 @@ def compute_riasec_profile(scores: dict) -> tuple[str, str, float]:
     top3 = ranked[:3]
     profile_code = "".join(top3)
     labels = [RIASEC_LABELS[d] for d in top3]
-
     if len(labels) == 3:
         description = f"The user seems to be {labels[0]}, {labels[1]}, and {labels[2]}."
     elif len(labels) == 2:
@@ -894,6 +899,9 @@ _RIASEC_LLM = None
 
 
 def _get_riasec_llm():
+    """
+    Get a singleton instance of the LLM for RIASEC answer interpretation.
+    """
     global _RIASEC_LLM
     if _RIASEC_LLM is None:
         _RIASEC_LLM = llm.get_llm(format="json")
@@ -911,7 +919,6 @@ def interpret_riasec_answer(question_idx: int, answer_text: str):
         return None
 
     question = RIASEC_QUESTIONS[question_idx]
-
     prompt = f"""You are scoring a student's answer to a RIASEC interest question.
 
 Question asked:
