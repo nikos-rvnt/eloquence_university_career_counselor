@@ -1,9 +1,7 @@
 import config
 import numpy as np
-import re
 import json
 import hashlib
-import glob
 import pickle
 import os
 import faiss
@@ -14,6 +12,10 @@ import rag.documents as documents
 
 
 def build_index_signature() -> str:
+    """
+    Build a unique signature for the index based on the configuration parameters.
+    This signature is used to determine if the index needs to be rebuilt or can be loaded from cache.
+    """
     signature_config = {
         "embedding_model": config.EMBEDDING_MODEL,
         "chunk_size": config.CHUNK_SIZE,
@@ -27,6 +29,9 @@ def build_index_signature() -> str:
 
 
 def normalize_embeddings(vectors: np.ndarray):
+    """
+    Normalize the embeddings to unit length for cosine similarity calculations in FAISS.
+    """
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     norms = np.maximum(norms, 1e-12)
 
@@ -34,6 +39,10 @@ def normalize_embeddings(vectors: np.ndarray):
 
 
 class UniversityIndexBuilder:
+    """
+    Class responsible for building and managing the FAISS index for university documents.
+    It handles document chunking, embedding generation, and index construction.
+    """
 
     def __init__(self):
         self.embedding_model = SentenceTransformer(config.EMBEDDING_MODEL, device=config.DEVICE)
@@ -75,7 +84,6 @@ class UniversityIndexBuilder:
             # Split the merged source file into logical records.
             # For the RAG files, these are primarily separated by '-----'
             records = documents.split_document_records(source=source, text=document_text)
-
             for record_number, (record_source, record_text) in enumerate(records):
 
                 if not record_text.strip():
@@ -112,6 +120,10 @@ class UniversityIndexBuilder:
         return chunks
 
     def build_index(self):
+        """
+        Build the FAISS index for the university documents, either by loading from cache or constructing it from scratch.
+        This method handles document chunking, embedding generation, and index construction.
+        """
         # load from disk if available, otherwise build from scratch
         cache_path = os.path.join(config.INDEX_CACHE_DIR, f"index_{build_index_signature()}.pkl")
         if os.path.exists(cache_path):

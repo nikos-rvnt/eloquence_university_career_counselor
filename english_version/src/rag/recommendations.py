@@ -2,13 +2,10 @@ import config
 import models
 import rag.retrieval as retrieval
 
-# import os
-# from typing import List
 import json
 import llm
 from json_repair import repair_json
 
-# import rag.documents as documents
 from dataclasses import dataclass, field
 
 # essential...
@@ -22,6 +19,11 @@ MAX_SELECTION_CANDIDATES = 35
 
 @dataclass
 class ProgrammeCandidate:
+    """
+    Represents a unique university programme candidate derived from retrieved document chunks.
+    Each candidate is identified by authoritative metadata, not by arbitrary text extraction.
+    """
+
     candidate_id: int
     university: str
     course: str
@@ -35,7 +37,10 @@ class ProgrammeCandidate:
 
 
 def get_retriever():
-
+    """
+    Return a singleton instance of the UniversityRAGRetriever.
+    This ensures that the retriever is only initialized once, improving performance.
+    """
     global _retriever_instance
     if _retriever_instance is None:
 
@@ -97,7 +102,6 @@ def build_programme_candidates(retrieval_results: list[tuple[models.DocumentChun
             key = (university_key, course_key)
 
         existing = candidates_by_key.get(key)
-
         if existing is None:
 
             candidates_by_key[key] = ProgrammeCandidate(
@@ -114,7 +118,6 @@ def build_programme_candidates(retrieval_results: list[tuple[models.DocumentChun
             )
 
         else:
-
             if float(score) > existing.score:
                 existing.score = float(score)
 
@@ -125,11 +128,7 @@ def build_programme_candidates(retrieval_results: list[tuple[models.DocumentChun
                 existing.evidence.append(chunk.text)
 
     candidates = list(candidates_by_key.values())
-
-    candidates.sort(
-        key=lambda candidate: candidate.score,
-        reverse=True,
-    )
+    candidates.sort(key=lambda candidate: candidate.score, reverse=True)
 
     # Reassign stable IDs after sorting.
     for candidate_id, candidate in enumerate(candidates):
@@ -160,7 +159,6 @@ def _get_recommendation_profile(profile: dict) -> dict:
     Name and gender are excluded because they do not establish
     academic compatibility.
     """
-
     return {
         field: profile.get(field) for field in RECOMMENDATION_PROFILE_FIELDS if profile.get(field) not in (None, "")
     }
@@ -173,14 +171,12 @@ def _format_candidate_evidence(
 ) -> str:
     """
     Format retrieved programme chunks as concise evidence.
-
     Multiple chunks may contain information about:
         - Programme subjects
         - Curriculum
         - Learning objectives
         - Educational level
         - Professional outcomes
-
     Long chunks are truncated to control prompt size.
     """
 
@@ -190,7 +186,6 @@ def _format_candidate_evidence(
     for chunk_number, evidence_text in enumerate(candidate.evidence, start=1):
 
         text = " ".join(str(evidence_text).split())
-
         if not text or text in seen:
             continue
 
@@ -200,7 +195,6 @@ def _format_candidate_evidence(
             text = text[:max_chars_per_chunk].rsplit(" ", 1)[0] + "..."
 
         evidence_sections.append(f"Evidence excerpt {len(evidence_sections) + 1}:\n{text}")
-
         if len(evidence_sections) >= max_chunks:
             break
 
@@ -210,10 +204,7 @@ def _format_candidate_evidence(
     return "\n\n".join(evidence_sections)
 
 
-def _get_geographic_fit_context(
-    profile: dict,
-    candidate: ProgrammeCandidate,
-) -> dict:
+def _get_geographic_fit_context(profile: dict, candidate: ProgrammeCandidate) -> dict:
     """
     Determine whether the programme's region agrees with the
     student's geographic and mobility constraints.
@@ -230,7 +221,6 @@ def _get_geographic_fit_context(
     )
 
     programme_region = candidate.region
-
     geographic_match = None
 
     if (
@@ -239,7 +229,6 @@ def _get_geographic_fit_context(
         and programme_region.casefold() in {str(region).casefold() for region in config.VALID_REGIONS}
     ):
         normalized_allowed = {str(region).casefold() for region in allowed_regions}
-
         geographic_match = programme_region.casefold() in normalized_allowed
 
     return {
@@ -250,42 +239,23 @@ def _get_geographic_fit_context(
     }
 
 
-def _generate_programme_explanation(
-    explanation_llm,
-    profile: dict,
-    candidate: ProgrammeCandidate,
-) -> str:
+def _generate_programme_explanation(explanation_llm, profile: dict, candidate: ProgrammeCandidate) -> str:
     """
-    Generate an individualized explanation of why a programme
-    may suit the student.
-
+    Generate an individualized explanation of why a programme may suit the student.
     The explanation must be grounded in:
         1. The collected student profile.
         2. The programme's authoritative metadata.
         3. The retrieved programme evidence.
-
     Unsupported matches must not be invented.
     """
 
-    evidence = _format_candidate_evidence(
-        candidate,
-        max_chunks=3,
-        max_chars_per_chunk=1800,
-    )
-
-    geographic_context = _get_geographic_fit_context(
-        profile,
-        candidate,
-    )
+    evidence = _format_candidate_evidence(candidate, max_chunks=3, max_chars_per_chunk=1800)
+    geographic_context = _get_geographic_fit_context(profile, candidate)
 
     explanation_prompt = f"""
 You are an expert university career counsellor.
-
-Your task is to explain why a particular university programme
-may be suitable for a student.
-
-You must provide an individualized explanation based on the
-student's collected profile and the actual programme evidence.
+Your task is to explain why a particular university programme may be suitable for a student.
+You must provide an individualized explanation based on the student's collected profile and the actual programme evidence.
 
 STUDENT PROFILE:
 {json.dumps(profile, ensure_ascii=False, indent=2)}
@@ -306,31 +276,23 @@ RETRIEVED PROGRAMME EVIDENCE:
 {evidence}
 
 INSTRUCTIONS:
-
 1. Write 2-4 sentences explaining the strongest reasons why this programme may be suitable for the student.
-
 2. Explicitly connect the student's field of interest to subjects, topics, curriculum areas, or learning objectives that are
    actually mentioned in the retrieved evidence.
-
 3. Consider the student's academic background:
    - Explain how the programme's degree level relates to the student's educational background when the supplied metadata
      supports that connection.
    - Do not claim that the student automatically satisfies admission requirements.
-
 4. Consider the student's career goal:
    - Connect the goal to documented programme content, learning objectives, or professional outcomes.
    - Do not invent employment opportunities or career pathways.
-
 5. Consider geographic compatibility only when supported:
    - If programme_is_within_allowed_regions is true, you may mention that the programme respects the student's geographic preference.
    - If it is false, do not describe the location as a match.
    - If it is null, omit geographic compatibility claims.
-
 6. Focus on the two or three strongest supported connections.
    You do not have to mention every profile attribute.
-
 7. If the available evidence does not substantiate a particular connection, do not invent one. Be transparent about the limitation.
-
 8. RIASEC INTERESTS:
    - If "riasec_description" / "riasec_profile" is present in the student profile, briefly connect the programme's documented
      content to the student's dominant interest types.
@@ -349,7 +311,6 @@ STRICT RULES:
 - Do not produce a generic explanation that could apply to any university programme.
 
 Write directly to the student in a professional and helpful tone.
-
 Return ONLY the explanation text.
 """
 
@@ -386,7 +347,6 @@ Return ONLY the explanation text.
 def retrieve_universities(profile: dict, riasec=None) -> dict:
     """
     Retrieve grounded university programmes and select recommendations.
-
     `riasec` is an optional RIASECProfile instance. When completed, its
     description, code, and scores are injected into `recommendation_profile`
     so they influence:
@@ -398,7 +358,7 @@ def retrieve_universities(profile: dict, riasec=None) -> dict:
     retriever = get_retriever()
     recommendation_profile = _get_recommendation_profile(profile)
 
-    # ── RIASEC enrichment ───────────────────────────────────────────
+    # ─> RIASEC enrichment
     if riasec is not None and getattr(riasec, "completed", False):
         if getattr(riasec, "description", None):
             recommendation_profile["riasec_description"] = riasec.description
@@ -406,13 +366,12 @@ def retrieve_universities(profile: dict, riasec=None) -> dict:
             recommendation_profile["riasec_profile"] = riasec.profile
         if getattr(riasec, "scores", None):
             recommendation_profile["riasec_scores"] = riasec.scores
-    # ────────────────────────────────────────────────────────────────
 
     # Stage 1: retrieve using the student's geographic preference
     retrieval_results = retriever.retrieve(recommendation_profile, min_unique_programmes=MIN_RECOMMENDATIONS)
     geography_relaxed = False
     if count_unique_programmes(retrieval_results) < MIN_RECOMMENDATIONS:
-        # --> Stage 2: relax geographic constraint
+        # -> Stage 2: relax geographic constraint in case the retrieved programmes are less than 3
         retrieval_results = retriever.retrieve(
             recommendation_profile,
             allowed_regions_override=config.VALID_REGIONS,
@@ -424,15 +383,13 @@ def retrieve_universities(profile: dict, riasec=None) -> dict:
     if not candidates:
         return {
             "recommendations": (
-                "I couldn't find any specific university programmes "
-                "matching your profile in the available documents."
+                "I couldn't find any specific university programmes matching your profile in the available documents."
             ),
             "retrieval_results": retrieval_results,
             "validated_departments": [],
         }
 
-    ### STAGE 3: PREPARE THE CLOSED CANDIDATE LIST
-
+    # Stage 3: Prepare the closed candidate list
     # Limit the selection model to the strongest retrieved candidates.
     selection_candidates = candidates[:MAX_SELECTION_CANDIDATES]
 
@@ -440,7 +397,6 @@ def retrieve_universities(profile: dict, riasec=None) -> dict:
     candidate_map = {candidate.candidate_id: candidate for candidate in selection_candidates}
 
     candidate_payload = []
-
     for candidate in selection_candidates:
 
         candidate_payload.append(
@@ -459,7 +415,7 @@ def retrieve_universities(profile: dict, riasec=None) -> dict:
             }
         )
 
-    # STAGE 4: ASK THE LLM TO SELECT CANDIDATE IDs
+    # Stage 4: Ask the LLM to select candidate IDs
     prompt = f"""
 You are an academic programme selection assistant.
 You must select university programmes from a CLOSED DATABASE.
@@ -472,26 +428,19 @@ AVAILABLE PROGRAMMES:
 {json.dumps(candidate_payload, ensure_ascii=False, indent=2)}
 
 SELECTION CRITERIA:
-
 1. FIELD OF INTEREST:
    Does the programme evidence contain academic subjects or topics related to the student's interests?
-
 2. ACADEMIC BACKGROUND:
    Is the programme's degree level appropriate for the student's current educational background?
-
 3. CAREER GOAL:
    Does the evidence support a connection with the student's stated professional or academic goals?
-
 4. GEOGRAPHIC PREFERENCE:
    Does the programme respect the student's mobility preference?
-
 5. RIASEC INTERESTS:
-   If "riasec_description" or "riasec_profile" is present in the student profile, prefer programmes whose documented content
-   aligns with the student's dominant RIASEC interest types. Do not invent RIASEC alignments that are not supported by the
-   programme evidence.
+   If "riasec_description" or "riasec_profile" is present in the student profile, prefer programmes whose documented content aligns
+ with the student's dominant RIASEC interest types. Do not invent RIASEC alignments that are not supported by the programme evidence.
 
 IMPORTANT:
-
 - Prioritize documented academic compatibility.
 - Do not invent connections absent from the evidence.
 - Do not select a programme merely because its name sounds relevant.
@@ -516,7 +465,6 @@ Return ONLY valid JSON in exactly this format:
         response_text = raw_response.content if hasattr(raw_response, "content") else str(raw_response)
         try:
             parsed = json.loads(response_text)
-
         except json.JSONDecodeError:
             repaired = repair_json(response_text)
             parsed = json.loads(repaired)
@@ -525,21 +473,18 @@ Return ONLY valid JSON in exactly this format:
             parsed = {}
 
         selected_ids = parsed.get("selected_ids", [])
-
         if not isinstance(selected_ids, list):
             selected_ids = []
 
     except Exception as exc:
         print("Failed to generate or parse recommendation selection:", exc)
-
         return {
             "recommendations": ("I'm sorry, I couldn't generate precise " "recommendations right now."),
             "retrieval_results": retrieval_results,
             "validated_departments": [],
         }
 
-    # ============================================================
-    # STAGE 5: VALIDATE THE SELECTED CANDIDATE IDs
+    # Stage 5: Validate the Selected Candidate IDs
     # (candidate_map was already initialized in Stage 3)
     validated_candidates = []
     seen_candidate_ids = set()
@@ -564,24 +509,7 @@ Return ONLY valid JSON in exactly this format:
         seen_candidate_ids.add(candidate_id)
         validated_candidates.append(candidate)
 
-        # Maximum of three recommendations.
-        # if len(validated_candidates) >= ΜΑΧ_RECOMMENDATIONS:
-        #     break
-
-    # # Check whether the LLM selected any valid candidates.
-    # if not validated_candidates:
-    #     return {
-    #         "recommendations": (
-    #             "I'm sorry, but I was unable to identify sufficiently "
-    #             "suitable programmes in the available university documents."
-    #         ),
-    #         "retrieval_results": retrieval_results,
-    #         "validated_departments": [],
-    #     }
-
-    # ------------------------------------------------------------
-    # 5.2 Deterministically fill any missing recommendation slots.
-    # ------------------------------------------------------------
+    # (5.2) Deterministically fill any missing recommendation slots.
     if len(validated_candidates) < MIN_RECOMMENDATIONS:
 
         print(
@@ -600,17 +528,14 @@ Return ONLY valid JSON in exactly this format:
             seen_candidate_ids.add(candidate.candidate_id)
 
             print(f"[recommendations] Added fallback candidate: " f"{candidate.university} - {candidate.course}")
-
             if len(validated_candidates) >= MIN_RECOMMENDATIONS:
                 break
 
-    # ------------------------------------------------------------
-    # 5.3 Final validation.
+    # (5.3) Final validation.
     validated_candidates = validated_candidates[:MAX_RECOMMENDATIONS]
     print(f"[recommendations] Final number of recommendations: " f"{len(validated_candidates)}")
 
-    # ------------------------------------------------------------
-    # 5.4 Handle insufficient database candidates.
+    # (5.4) Handle insufficient database candidates.
     if len(validated_candidates) < MIN_RECOMMENDATIONS:
 
         available = len(validated_candidates)

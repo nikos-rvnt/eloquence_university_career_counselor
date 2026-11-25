@@ -3,10 +3,8 @@ import config
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import rag.indexing as indexing
 import pickle
-import rag.documents as documents
 import models
 from collections import defaultdict
-
 import os
 
 os.environ.setdefault("HF_HOME", "/app/.cache/huggingface")
@@ -19,6 +17,9 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 
 def normalize_embeddings(vectors: np.ndarray):
+    """
+    Normalize embeddings to unit length for cosine similarity calculations.
+    """
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     norms = np.maximum(norms, 1e-12)
 
@@ -45,14 +46,12 @@ def get_allowed_study_regions(home_region: str | None, mobility_preference: str 
     if mobility_preference == "strict_local":
         if home_region in config.VALID_REGIONS:
             return {home_region}
-
         # a local constraint cannot be enforced if the home region itself is unknown.
         return None
 
     if mobility_preference == "nearby_ok":
         if home_region in config.NEARBY_REGIONS:
             return config.NEARBY_REGIONS[home_region]
-
         return None
 
     if mobility_preference == "italy_ok":
@@ -62,12 +61,14 @@ def get_allowed_study_regions(home_region: str | None, mobility_preference: str 
 
 
 class UniversityRAGRetriever:
+    """
+    Retrieve university programme chunks from a FAISS index.
+    """
 
     def __init__(self):
 
         self._embedding_model = None
         self._reranker = None
-
         # self.embedding_model = SentenceTransformer(config.EMBEDDING_MODEL, device=config.DEVICE)
         # self.reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", device=config.DEVICE)
 
@@ -84,6 +85,9 @@ class UniversityRAGRetriever:
 
     @property
     def embedding_model(self):
+        """
+        Load the SentenceTransformer embedding model if it hasn't been loaded yet.
+        """
         if self._embedding_model is None:
             print("[retrieval] Loading SentenceTransformer...")
             self._embedding_model = SentenceTransformer(config.EMBEDDING_MODEL, device=config.DEVICE)
@@ -92,6 +96,9 @@ class UniversityRAGRetriever:
 
     @property
     def reranker(self):
+        """
+        Load the CrossEncoder reranker if it hasn't been loaded yet.
+        """
         if self._reranker is None:
             print("[retrieval] Loading CrossEncoder reranker...")
             self._reranker = CrossEncoder(config.RERANK_MODEL, device=config.DEVICE)
@@ -121,19 +128,13 @@ class UniversityRAGRetriever:
         try:
             with open(cache_path, "rb") as f:
                 data = pickle.load(f)
-
         except (OSError, pickle.UnpicklingError) as exc:
             raise RuntimeError(f"Failed to load FAISS index cache: {cache_path}") from exc
 
         if not isinstance(data, dict):
             raise RuntimeError(f"Invalid FAISS index cache format: {cache_path}")
 
-        required_keys = {
-            "documents",
-            "index",
-            "region_indices",
-        }
-
+        required_keys = {"documents", "index", "region_indices"}
         missing_keys = required_keys.difference(data.keys())
         if missing_keys:
             raise RuntimeError("Invalid FAISS index cache. " f"Missing keys: {sorted(missing_keys)}")
@@ -181,8 +182,7 @@ class UniversityRAGRetriever:
 
             return results
 
-        # Geographic restriction
-        # Retrieve from every permitted region independently.
+        # Geographic restriction - Retrieve from every permitted region independently.
         regional_results = []
         for region in allowed_regions:
 
@@ -260,7 +260,10 @@ class UniversityRAGRetriever:
 
     # Natural-language profile query
     def build_query(self, profile):
-
+        """
+        Build a natural-language query from the student's profile.
+        The query is used to retrieve relevant university programmes.
+        """
         parts = []
 
         gender = profile.get("gender")
@@ -400,7 +403,6 @@ class UniversityRAGRetriever:
 
         programme_keys = set()
         for chunk, _ in results:
-
             key = self._programme_key(chunk)
             if key is not None:
                 programme_keys.add(key)
@@ -476,7 +478,7 @@ class UniversityRAGRetriever:
             if len(course_code) >= 2 and course_code[0] == "L" and course_code[1].isdigit():
                 return "undergraduate"
 
-        # --- fallback to degree / type metadata (unchanged) ---
+        # --> fallback to degree / type metadata (unchanged)
         metadata = " ".join(
             value for value in (getattr(chunk, "degree", None), getattr(chunk, "type", None)) if value
         ).casefold()
@@ -552,8 +554,7 @@ class UniversityRAGRetriever:
             )
 
         # Large candidate pool.
-        # We retrieve substantially more than 3 programmes because
-        # many chunks may belong to the same programme.
+        # We retrieve substantially more than 3 programmes because many chunks may belong to the same programme.
         candidate_k = max(top_k * 20, final_k * 50, 300)
 
         semantic_candidates = self._retrieve_by_regions(
@@ -594,10 +595,8 @@ class UniversityRAGRetriever:
         if self._count_unique_programmes(evidence_results) >= min_unique_programmes:
             return evidence_results
 
-        # Not enough programmes under the original geographic
-        # constraint.
-        # Expand geographically while keeping the educational-level
-        # constraint HARD.
+        # Not enough programmes under the original geographic constraint.
+        # Expand geographically while keeping the educational-level constraint HARD.
         italy_regions = config.VALID_REGIONS
         if allowed_regions != italy_regions:
             expanded_candidates = self._retrieve_by_regions(
@@ -609,7 +608,6 @@ class UniversityRAGRetriever:
 
                 if not self._is_compatible_programme(chunk, target_level):
                     continue
-
                 expanded_compatible.append((chunk, semantic_score))
 
             expanded_compatible = self._diversify_by_programme(expanded_compatible, max_per_programme=3)
@@ -625,20 +623,17 @@ class UniversityRAGRetriever:
                 # programmes with the expanded Italian pool.
                 combined = evidence_results + expanded_reranked
 
-                # Preserve up to three evidence chunks per programme,
-                # while avoiding duplicate chunks.
+                # Preserve up to three evidence chunks per programme, while avoiding duplicate chunks.
                 combined = self._retain_top_evidence_chunks(combined, max_chunks_per_programme=3)
 
                 if self._count_unique_programmes(combined) >= min_unique_programmes:
                     return combined
 
-                # Still fewer than the requested number:
-                # return all compatible programmes found.
+                # Still fewer than the requested number: return all compatible programmes found.
                 if combined:
                     return combined
 
-        # If the database genuinely contains fewer programmes,
-        # return all compatible programmes and their evidence.
+        # If the database genuinely contains fewer programmes, return all compatible programmes and their evidence.
         return evidence_results
 
     def _select_diverse(
@@ -660,7 +655,7 @@ class UniversityRAGRetriever:
         seen_universities: set[str] = set()
         seen_programmes: set[tuple[str, str]] = set()
 
-        # ── Pass 1: one chunk per unique programme ──────────────────────
+        # ─> Pass 1: one chunk per unique programme
         for chunk, score in reranked:
             uni = (getattr(chunk, "university", "") or "").strip().casefold()
             cc = (getattr(chunk, "course_code", "") or "").strip().casefold()
@@ -681,7 +676,7 @@ class UniversityRAGRetriever:
             if len(selected) >= min_unique_programmes:
                 return selected
 
-        # ── Pass 2: one chunk per NEW university ────────────────────────
+        # ─> Pass 2: one chunk per NEW university
         for chunk, score in reranked:
             if id(chunk) in seen_chunks:
                 continue
@@ -697,7 +692,7 @@ class UniversityRAGRetriever:
             if len(selected) >= min_unique_programmes:
                 return selected
 
-        # ── Pass 3: whatever remains, in score order ────────────────────
+        # ─> Pass 3: whatever remains, in score order
         for chunk, score in reranked:
             if id(chunk) in seen_chunks:
                 continue
